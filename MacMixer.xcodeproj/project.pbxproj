@@ -13,6 +13,7 @@
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* Assets.xcassets */; };
 		A10000000000000000000015 /* AppTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* AppTap.swift */; };
 		A10000000000000000000016 /* VolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* VolumeController.swift */; };
+		A10000000000000000000018 /* OutputDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000A /* OutputDevice.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 		A10000000000000000000006 /* AppTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTap.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* VolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeController.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000000000000000000000A /* OutputDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDevice.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +55,7 @@
 				A10000000000000000000003 /* AudioProcessMonitor.swift */,
 				A10000000000000000000006 /* AppTap.swift */,
 				A10000000000000000000007 /* VolumeController.swift */,
+				A1000000000000000000000A /* OutputDevice.swift */,
 				A10000000000000000000004 /* Assets.xcassets */,
 				A10000000000000000000008 /* Info.plist */,
 			);
@@ -141,6 +144,7 @@
 				A10000000000000000000013 /* AudioProcessMonitor.swift in Sources */,
 				A10000000000000000000015 /* AppTap.swift in Sources */,
 				A10000000000000000000016 /* VolumeController.swift in Sources */,
+				A10000000000000000000018 /* OutputDevice.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
