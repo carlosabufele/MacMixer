@@ -29,6 +29,10 @@ struct TapError: Error, CustomStringConvertible {
 final class AppTap: @unchecked Sendable {
     let processObjectIDs: [AudioObjectID]
 
+    // The output device this tap plays to (set by start()). When the Mac's
+    // default output changes, taps for the old device get rebuilt.
+    private(set) var outputUID: String?
+
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
@@ -91,14 +95,15 @@ final class AppTap: @unchecked Sendable {
 
         var status = AudioHardwareCreateProcessTap(description, &tapID)
         guard status == noErr else { throw TapError(step: "Creating the tap", status: status) }
-        tapLog.info("Created tap \(self.tapID) for processes \(self.processObjectIDs, privacy: .public), format: \(Self.tapFormatDescription(self.tapID), privacy: .public)")
+        tapLog.debug("Created tap \(self.tapID) for processes \(self.processObjectIDs, privacy: .public), format: \(Self.tapFormatDescription(self.tapID), privacy: .public)")
 
         // 2. The aggregate device: your current output device plus the tap.
         guard let outputID = CoreAudioHelpers.defaultOutputDeviceID(),
               let outputUID = CoreAudioHelpers.deviceUID(of: outputID) else {
             throw TapError(step: "Finding the output device", status: -1)
         }
-        tapLog.info("Output device \(outputID) uid=\(outputUID, privacy: .public)")
+        self.outputUID = outputUID
+        tapLog.debug("Output device \(outputID) uid=\(outputUID, privacy: .public)")
 
         let aggregate: [String: Any] = [
             kAudioAggregateDeviceNameKey: "MacMixer",
@@ -134,7 +139,7 @@ final class AppTap: @unchecked Sendable {
 
         status = AudioDeviceStart(aggregateID, ioProcID)
         guard status == noErr else { throw TapError(step: "Starting audio", status: status) }
-        tapLog.info("Started aggregate device \(self.aggregateID)")
+        tapLog.debug("Started aggregate device \(self.aggregateID)")
     }
 
     // For the log: the tap's sample rate and channel count, e.g. "48000 Hz, 2 ch".
