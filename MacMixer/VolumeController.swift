@@ -6,6 +6,8 @@ import CoreAudio
 // An app at 100% and not muted gets no tap at all, so its sound is completely
 // untouched (no added delay). A tap is created the first time you move its
 // slider down or mute it, and kept until the app goes away or MacMixer quits.
+// Settings are saved, so an app you turned down comes back at the same level
+// the next time it plays, even after relaunching MacMixer.
 //
 // Building or destroying a tap can take Core Audio several seconds, so that work
 // runs on `tapQueue`, never on the main thread. The UI only ever changes numbers.
@@ -35,13 +37,54 @@ final class VolumeController: ObservableObject {
     // one at a time.
     private let tapQueue = DispatchQueue(label: "com.skip.MacMixer.taps", qos: .userInitiated)
 
+    // Handlers for `kill` / Ctrl-C, kept alive for the app's lifetime.
+    private var signalSources: [DispatchSourceSignal] = []
+
+    // Saving to disk waits until the slider has been still for a moment.
+    private var pendingSave: DispatchWorkItem?
+
+    // Following the output device: which device we listen to for sample-rate
+    // changes, and a pending (debounced) "rebuild taps for the new device".
+    private var watchedDeviceID = AudioObjectID(kAudioObjectUnknown)
+    private var pendingDeviceRebuild: DispatchWorkItem?
+    private lazy var deviceChanged: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.outputDeviceChanged() }
+    }
+    private var sampleRateAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
     init() {
+        loadSettings()
+
         // Remove every tap on quit so no app is left silenced.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.removeAllTapsBeforeQuit() }
         }
+
+        // Being killed with SIGTERM (e.g. `kill`, logout) or SIGINT (Ctrl-C when run
+        // from Terminal) skips willTerminate, so catch those too and clean up the
+        // same way. signal(..., SIG_IGN) turns off the default "exit immediately"
+        // so the dispatch source gets a chance to run.
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.removeAllTapsBeforeQuit() }
+                exit(0)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+
+        // Rebuild taps when the Mac switches output device (e.g. AirPods connect).
+        var address = CoreAudioHelpers.address(kAudioHardwarePropertyDefaultOutputDevice)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, deviceChanged)
+        watchSampleRate()
     }
 
     func volume(for appID: String) -> Float { volumes[appID] ?? 1 }
@@ -51,11 +94,13 @@ final class VolumeController: ObservableObject {
     func setVolume(_ value: Float, for appID: String) {
         volumes[appID] = value
         apply(appID)
+        scheduleSave()
     }
 
     func toggleMute(_ appID: String) {
         if muted.contains(appID) { muted.remove(appID) } else { muted.insert(appID) }
         apply(appID)
+        scheduleSave()
     }
 
     // Called whenever the list of audio apps changes, or an app starts or stops
@@ -65,7 +110,7 @@ final class VolumeController: ObservableObject {
 
         for (appID, tap) in taps {
             guard processesByApp[appID] != nil else {
-                removeTap(appID)         // app is gone
+                removeTap(appID)         // app is gone (quit or crashed)
                 continue
             }
             // A different set of the app's processes is now playing (e.g. a new
@@ -73,13 +118,13 @@ final class VolumeController: ObservableObject {
             // playing we keep the old tap, so the volume still applies when the
             // same process resumes.
             let playing = playingProcesses(of: appID)
-            if !playing.isEmpty && Set(playing) != Set(tap.processObjectIDs) {
-                removeTap(appID)
-                apply(appID)
+            if !playing.isEmpty && Set(playing) != Set(tap.processObjectIDs) && building[appID] == nil {
+                rebuildTap(appID)
             }
         }
 
-        // Apps turned down while silent get their tap once they start playing.
+        // Apps turned down while silent, or turned down in an earlier session,
+        // get their tap once they start playing.
         for appID in processesByApp.keys where taps[appID] == nil {
             apply(appID)
         }
@@ -120,10 +165,19 @@ final class VolumeController: ObservableObject {
 
     // MARK: - Building and removing taps (the slow part runs on tapQueue)
 
+    // Replaces an app's tap with a fresh one (new device, or different processes).
+    // The old tap keeps working until the new one is ready, so the app never
+    // jumps to full volume in between.
+    private func rebuildTap(_ appID: String) {
+        guard let old = taps[appID] else { return }
+        let playing = playingProcesses(of: appID)
+        startTap(for: appID, processes: playing.isEmpty ? old.processObjectIDs : playing, attempt: 1)
+    }
+
     private func startTap(for appID: String, processes: [AudioObjectID], attempt: Int) {
         for objectID in processes {
             let pid = CoreAudioHelpers.pid(of: objectID).map(String.init) ?? "?"
-            tapLog.info("\(appID, privacy: .public): process object \(objectID) pid \(pid, privacy: .public) playing=\(CoreAudioHelpers.isRunningOutput(objectID))")
+            tapLog.debug("\(appID, privacy: .public): process object \(objectID) pid \(pid, privacy: .public) playing=\(CoreAudioHelpers.isRunningOutput(objectID))")
         }
 
         nextBuildNumber += 1
@@ -160,6 +214,9 @@ final class VolumeController: ObservableObject {
 
         // The slider may have moved (or been dragged back to 100%) while we waited.
         tap.setGain(currentGain(appID))
+        if let old = taps[appID] {
+            destroyOnTapQueue(old)   // the new tap takes over from here
+        }
         taps[appID] = tap
         lastError = nil
         updateSoundTimer()
@@ -168,22 +225,20 @@ final class VolumeController: ObservableObject {
 
     // A tap can be created "successfully" but never actually run (for example
     // if it was made while the permission prompt was still on screen). Then the
-    // app isn't muted and the slider does nothing. We only tap processes that are
-    // playing, so if the audio callback hasn't run after a second, rebuild it.
+    // app isn't muted and the slider does nothing. If the app is playing and the
+    // audio callback hasn't run after a second, rebuild it.
     private func scheduleHealthCheck(_ appID: String, tap: AppTap, attempt: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak tap] in
             MainActor.assumeIsolated {
                 guard let self, let tap, self.taps[appID] === tap else { return }  // replaced or removed meanwhile
-                if tap.hasDeliveredAudio {
-                    tapLog.info("\(appID, privacy: .public): tap is running (attempt \(attempt))")
-                    return
+                if tap.hasDeliveredAudio { return }
+                let playing = self.playingProcesses(of: appID)
+                if playing.isEmpty {
+                    return                 // paused; the tap starts when the app plays again
                 }
                 tapLog.error("\(appID, privacy: .public): tap never ran (attempt \(attempt))")
                 self.removeTap(appID)
-                let playing = self.playingProcesses(of: appID)
-                if playing.isEmpty {
-                    return                 // stopped playing; sync() retries when it resumes
-                } else if attempt < 3 {
+                if attempt < 3 {
                     self.startTap(for: appID, processes: playing, attempt: attempt + 1)
                 } else {
                     self.lastError = "Couldn't control this app's volume: the audio tap never started."
@@ -206,9 +261,12 @@ final class VolumeController: ObservableObject {
         tapQueue.async { tap.stop() }
     }
 
-    // The one place we wait on tapQueue: the app is quitting, and every tap must
-    // be gone before the process exits so no app is left silenced.
-    private func removeAllTapsBeforeQuit() {
+    // The one place we wait on tapQueue: MacMixer is quitting (normally or via
+    // SIGTERM/SIGINT), and every tap must be gone before the process exits so no
+    // app is left silenced. If MacMixer crashes instead, Core Audio removes our
+    // private taps and aggregate devices itself when the process dies.
+    func removeAllTapsBeforeQuit() {
+        saveSettings()
         let all = Array(taps.values)
         taps.removeAll()
         building.removeAll()
@@ -216,6 +274,92 @@ final class VolumeController: ObservableObject {
         lastHeard.removeAll()
         updateSoundTimer()
         tapQueue.sync { all.forEach { $0.stop() } }
+        tapLog.debug("Removed \(all.count) taps before quitting")
+    }
+
+    // MARK: - Following the output device
+
+    // Bluetooth switches can send several notifications in a row, and building
+    // aggregate devices back to back can make apps like YouTube pause. So wait
+    // until things settle for 0.4 s, then rebuild each affected tap once.
+    private func outputDeviceChanged() {
+        pendingDeviceRebuild?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.rebuildTapsForCurrentDevice() }
+        }
+        pendingDeviceRebuild = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    private func rebuildTapsForCurrentDevice() {
+        watchSampleRate()
+        let currentUID = CoreAudioHelpers.defaultOutputDeviceID().flatMap(CoreAudioHelpers.deviceUID)
+        for (appID, tap) in taps where building[appID] == nil {
+            if tap.outputUID != currentUID || currentUID == nil {
+                rebuildTap(appID)
+            }
+        }
+    }
+
+    // Logs when the current output device's sample rate changes (e.g. an app
+    // switching the speakers from 44.1 to 48 kHz). We deliberately don't rebuild
+    // taps here: building an aggregate can itself change the rate, which could
+    // loop. The tap's drift compensation should absorb it; if a rate change ever
+    // turns out to break a tap, this log line is where to start.
+    private lazy var sampleRateChanged: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        MainActor.assumeIsolated {
+            guard let self else { return }
+            var rate: Float64 = 0
+            var size = UInt32(MemoryLayout<Float64>.size)
+            AudioObjectGetPropertyData(self.watchedDeviceID, &self.sampleRateAddress, 0, nil, &size, &rate)
+            tapLog.notice("Output device sample rate changed to \(rate) Hz")
+        }
+    }
+
+    private func watchSampleRate() {
+        let deviceID = CoreAudioHelpers.defaultOutputDeviceID() ?? AudioObjectID(kAudioObjectUnknown)
+        guard deviceID != watchedDeviceID else { return }
+        if watchedDeviceID != kAudioObjectUnknown {
+            AudioObjectRemovePropertyListenerBlock(watchedDeviceID, &sampleRateAddress, DispatchQueue.main, sampleRateChanged)
+        }
+        watchedDeviceID = deviceID
+        if deviceID != kAudioObjectUnknown {
+            AudioObjectAddPropertyListenerBlock(deviceID, &sampleRateAddress, DispatchQueue.main, sampleRateChanged)
+        }
+    }
+
+    // MARK: - Saving settings
+
+    // Stored in UserDefaults by bundle ID. Apps we only know by process number
+    // ("pid-123") aren't saved, because that number changes every launch.
+    // Only non-default settings are kept: below 100% or muted.
+    private static let volumesKey = "appVolumes"
+    private static let mutedKey = "mutedApps"
+
+    private func loadSettings() {
+        let defaults = UserDefaults.standard
+        if let saved = defaults.dictionary(forKey: Self.volumesKey) as? [String: Double] {
+            volumes = saved.mapValues { Float($0) }
+        }
+        muted = Set(defaults.stringArray(forKey: Self.mutedKey) ?? [])
+    }
+
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.saveSettings() }
+        }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    private func saveSettings() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        let keep: (String) -> Bool = { !$0.hasPrefix("pid-") }
+        let toSave = volumes.filter { keep($0.key) && $0.value < 0.999 }.mapValues { Double($0) }
+        UserDefaults.standard.set(toSave, forKey: Self.volumesKey)
+        UserDefaults.standard.set(muted.filter(keep).sorted(), forKey: Self.mutedKey)
     }
 
     // MARK: - "Playing" detection for tapped apps
