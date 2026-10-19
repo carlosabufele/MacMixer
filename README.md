@@ -92,6 +92,6 @@ MacMixer, every tap is removed and apps go straight back to normal.
 
 ## Credits
 
-Made by Skip. Built with Swift, SwiftUI and Core Audio.
+Made by Carlos Abufele. Built with Swift, SwiftUI and Core Audio.
 
 Licensed under the MIT License; see [LICENSE](LICENSE).
