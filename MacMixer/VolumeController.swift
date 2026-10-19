@@ -12,6 +12,11 @@ final class VolumeController: ObservableObject {
     @Published private(set) var muted: Set<String> = []
     @Published private(set) var lastError: String?
 
+    // Apps whose tap is passing real (non-silent) sound right now. Needed because
+    // once an app is tapped, Core Audio may stop reporting it as playing.
+    @Published private(set) var sounding: Set<String> = []
+    private var soundCheckTimer: Timer?
+
     private var taps: [String: AppTap] = [:]
     private var processesByApp: [String: [AudioObjectID]] = [:]
 
@@ -25,6 +30,7 @@ final class VolumeController: ObservableObject {
     }
 
     func volume(for appID: String) -> Float { volumes[appID] ?? 1 }
+    func isSounding(_ appID: String) -> Bool { sounding.contains(appID) }
     func isMuted(_ appID: String) -> Bool { muted.contains(appID) }
 
     func setVolume(_ value: Float, for appID: String) {
@@ -37,24 +43,67 @@ final class VolumeController: ObservableObject {
         apply(appID)
     }
 
-    // Called whenever the list of audio apps changes.
+    // Called whenever the list of audio apps changes, or an app starts or stops
+    // playing (AudioProcessMonitor refreshes on both).
     func sync(with apps: [AudioApp]) {
         processesByApp = Dictionary(apps.map { ($0.id, $0.processObjectIDs) }, uniquingKeysWith: { a, _ in a })
 
         for (appID, tap) in taps {
-            guard let processes = processesByApp[appID] else {
+            guard processesByApp[appID] != nil else {
                 taps[appID] = nil        // app is gone: tear down its tap
                 continue
             }
-            if Set(processes) != Set(tap.processObjectIDs) {
-                taps[appID] = nil        // app gained/lost a helper process: rebuild
+            // A different set of the app's processes is now playing (e.g. a new
+            // Chrome helper started): rebuild the tap around them. If nothing is
+            // playing we keep the old tap, so the volume still applies when the
+            // same process resumes.
+            let playing = playingProcesses(of: appID)
+            if !playing.isEmpty && Set(playing) != Set(tap.processObjectIDs) {
+                taps[appID] = nil
                 apply(appID)
             }
         }
+
+        // Apps turned down while silent get their tap once they start playing.
+        for appID in processesByApp.keys where taps[appID] == nil {
+            apply(appID)
+        }
+
+        sounding.formIntersection(taps.keys)
+        updateSoundTimer()
     }
 
     func removeAllTaps() {
         taps.removeAll()                 // each AppTap cleans up in deinit
+        sounding.removeAll()
+        updateSoundTimer()
+    }
+
+    // Only the app's processes that are making sound right now.
+    //
+    // Why: a tap doesn't start until EVERY process in it is producing audio.
+    // Chrome has a helper (video capture) that registers with Core Audio but
+    // never plays, so a tap including it never started and Chrome stayed loud.
+    private func playingProcesses(of appID: String) -> [AudioObjectID] {
+        (processesByApp[appID] ?? []).filter { CoreAudioHelpers.isRunningOutput($0) }
+    }
+
+    // While any tap exists, check twice a second which taps are passing
+    // loud-enough sound. Only publishes changes, so the UI doesn't redraw for nothing.
+    private func updateSoundTimer() {
+        if taps.isEmpty {
+            soundCheckTimer?.invalidate()
+            soundCheckTimer = nil
+        } else if soundCheckTimer == nil {
+            soundCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkSounding() }
+            }
+        }
+    }
+
+    private func checkSounding() {
+        let now = Set(taps.filter { $0.value.takePeak() > 0.0001 }.keys)
+        if now != sounding { sounding = now }
     }
 
     private func apply(_ appID: String) {
@@ -65,8 +114,10 @@ final class VolumeController: ObservableObject {
             return
         }
 
-        // Leave apps at full volume alone.
-        guard gain < 0.999, let processes = processesByApp[appID] else { return }
+        // Leave apps at full volume alone. An app that isn't playing can't be
+        // tapped yet; sync() calls us again when it starts.
+        let processes = playingProcesses(of: appID)
+        guard gain < 0.999, !processes.isEmpty else { return }
 
         startTap(for: appID, processes: processes, gain: gain, attempt: 1)
     }
@@ -82,6 +133,7 @@ final class VolumeController: ObservableObject {
             try tap.start()
             taps[appID] = tap
             lastError = nil
+            updateSoundTimer()
         } catch {
             tapLog.error("\(appID, privacy: .public): \(String(describing: error), privacy: .public)")
             lastError = "Couldn't control this app's volume: \(error)"
@@ -92,7 +144,8 @@ final class VolumeController: ObservableObject {
         // Health check: a tap can be created "successfully" but never actually
         // run (for example if it was made while the permission prompt was still
         // on screen). Then the app isn't muted and the slider does nothing.
-        // If our audio callback hasn't run after a second, rebuild the tap.
+        // We only tap processes that are playing, so if the callback hasn't
+        // run after a second, rebuild the tap.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak tap] in
             MainActor.assumeIsolated {
                 guard let self, let tap, self.taps[appID] === tap else { return }  // replaced or removed meanwhile
@@ -102,8 +155,13 @@ final class VolumeController: ObservableObject {
                 }
                 tapLog.error("\(appID, privacy: .public): tap never ran (attempt \(attempt))")
                 self.taps[appID] = nil
-                if attempt < 3 {
-                    self.startTap(for: appID, processes: tap.processObjectIDs,
+                self.sounding.remove(appID)
+                self.updateSoundTimer()
+                let playing = self.playingProcesses(of: appID)
+                if playing.isEmpty {
+                    return                 // stopped playing; sync() retries when it resumes
+                } else if attempt < 3 {
+                    self.startTap(for: appID, processes: playing,
                                   gain: self.isMuted(appID) ? 0 : self.volume(for: appID),
                                   attempt: attempt + 1)
                 } else {

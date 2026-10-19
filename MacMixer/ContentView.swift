@@ -6,8 +6,10 @@ struct ContentView: View {
     @ObservedObject var volumes: VolumeController
     @State private var showNotPlaying = false
 
-    private var playing: [AudioApp] { monitor.apps.filter { $0.isPlaying } }
-    private var notPlaying: [AudioApp] { monitor.apps.filter { !$0.isPlaying } }
+    // An app counts as playing if Core Audio says so, or if its tap is passing sound.
+    private func isPlaying(_ app: AudioApp) -> Bool { app.isPlaying || volumes.isSounding(app.id) }
+    private var playing: [AudioApp] { monitor.apps.filter { isPlaying($0) } }
+    private var notPlaying: [AudioApp] { monitor.apps.filter { !isPlaying($0) } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -64,6 +66,7 @@ struct AppRow: View {
 
     private var isMuted: Bool { volumes.isMuted(app.id) }
     private var volume: Float { volumes.volume(for: app.id) }
+    private var isPlaying: Bool { app.isPlaying || volumes.isSounding(app.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -84,7 +87,7 @@ struct AppRow: View {
                     volumes.toggleMute(app.id)
                 } label: {
                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .foregroundStyle(isMuted ? Color.secondary : (app.isPlaying ? Color.green : Color.primary))
+                        .foregroundStyle(isMuted ? Color.secondary : (isPlaying ? Color.green : Color.primary))
                         .frame(width: 20)
                 }
                 .buttonStyle(.borderless)

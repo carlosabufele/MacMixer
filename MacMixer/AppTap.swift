@@ -33,12 +33,26 @@ final class AppTap {
     // gain[1] = gain the audio thread applied last, used to fade smoothly.
     private let gain: UnsafeMutablePointer<Float>
 
-    // How many times the IOProc has run. If it stays 0, the tap is dead
-    // (Core Audio never started reading it) and the app is NOT being muted.
-    // Written only by the audio thread; read by the main thread for a health check.
+    // How many times the IOProc has run. Core Audio only runs it while the app
+    // is actually producing sound, so if it stays 0 while the app is playing,
+    // the tap is dead and the app is NOT being muted.
+    // Written only by the audio thread; read by the main thread.
     private let callbackCount: UnsafeMutablePointer<UInt32>
 
+    // Loudest input sample since the main thread last asked (see takePeak()).
+    // Lets us tell "playing" from "running but silent".
+    private let inputPeak: UnsafeMutablePointer<Float>
+
     var hasDeliveredAudio: Bool { callbackCount.pointee > 0 }
+
+    // Returns the loudest sample since the last call, and starts over.
+    // A race with the audio thread can at worst lose one buffer's peak,
+    // which is fine for a "playing or not" indicator.
+    func takePeak() -> Float {
+        let peak = inputPeak.pointee
+        inputPeak.pointee = 0
+        return peak
+    }
 
     init(processObjectIDs: [AudioObjectID], gain initialGain: Float) {
         self.processObjectIDs = processObjectIDs
@@ -47,12 +61,15 @@ final class AppTap {
         gain[1] = initialGain
         callbackCount = .allocate(capacity: 1)
         callbackCount.pointee = 0
+        inputPeak = .allocate(capacity: 1)
+        inputPeak.pointee = 0
     }
 
     deinit {
         stop()
         gain.deallocate()
         callbackCount.deallocate()
+        inputPeak.deallocate()
     }
 
     func setGain(_ value: Float) {
@@ -104,9 +121,10 @@ final class AppTap {
         // 3. The audio callback. Capture only the raw pointer, nothing else.
         let gain = self.gain
         let callbackCount = self.callbackCount
+        let inputPeak = self.inputPeak
         status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) { _, input, _, output, _ in
             callbackCount.pointee &+= 1
-            AppTap.render(input: input, output: output, gain: gain)
+            AppTap.render(input: input, output: output, gain: gain, peak: inputPeak)
         }
         guard status == noErr else { throw TapError(step: "Creating the audio callback", status: status) }
 
@@ -148,11 +166,13 @@ final class AppTap {
     // slider moves don't click.
     private static func render(input: UnsafePointer<AudioBufferList>,
                                output: UnsafeMutablePointer<AudioBufferList>,
-                               gain: UnsafeMutablePointer<Float>) {
+                               gain: UnsafeMutablePointer<Float>,
+                               peak: UnsafeMutablePointer<Float>) {
         let inputs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         let outputs = UnsafeMutableAudioBufferListPointer(output)
         let target = gain[0]
         let startGain = gain[1]
+        var loudest = peak.pointee
 
         for index in 0..<outputs.count {
             guard let outData = outputs[index].mData else { continue }
@@ -171,11 +191,13 @@ final class AppTap {
             for n in 0..<count {
                 current += step
                 outSamples[n] = inSamples[n] * current
+                loudest = max(loudest, abs(inSamples[n]))
             }
             if count < outCount {
                 (outSamples + count).update(repeating: 0, count: outCount - count)
             }
         }
         gain[1] = target
+        peak.pointee = loudest
     }
 }
