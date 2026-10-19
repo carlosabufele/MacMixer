@@ -1,5 +1,8 @@
 import CoreAudio
 import Foundation
+import os
+
+let tapLog = Logger(subsystem: "com.skip.MacMixer", category: "tap")
 
 struct TapError: Error, CustomStringConvertible {
     let step: String
@@ -18,7 +21,7 @@ struct TapError: Error, CustomStringConvertible {
 //    multiplied by the gain (0.0 = silent, 1.0 = original volume).
 //
 // Real-time rule: the IOProc block must never allocate memory, take locks, or
-// touch Swift objects. So it only uses a raw pointer to two Floats.
+// touch Swift objects. So it only uses raw pointers to a few numbers.
 final class AppTap {
     let processObjectIDs: [AudioObjectID]
 
@@ -30,16 +33,26 @@ final class AppTap {
     // gain[1] = gain the audio thread applied last, used to fade smoothly.
     private let gain: UnsafeMutablePointer<Float>
 
+    // How many times the IOProc has run. If it stays 0, the tap is dead
+    // (Core Audio never started reading it) and the app is NOT being muted.
+    // Written only by the audio thread; read by the main thread for a health check.
+    private let callbackCount: UnsafeMutablePointer<UInt32>
+
+    var hasDeliveredAudio: Bool { callbackCount.pointee > 0 }
+
     init(processObjectIDs: [AudioObjectID], gain initialGain: Float) {
         self.processObjectIDs = processObjectIDs
         gain = .allocate(capacity: 2)
         gain[0] = initialGain
         gain[1] = initialGain
+        callbackCount = .allocate(capacity: 1)
+        callbackCount.pointee = 0
     }
 
     deinit {
         stop()
         gain.deallocate()
+        callbackCount.deallocate()
     }
 
     func setGain(_ value: Float) {
@@ -57,12 +70,14 @@ final class AppTap {
 
         var status = AudioHardwareCreateProcessTap(description, &tapID)
         guard status == noErr else { throw TapError(step: "Creating the tap", status: status) }
+        tapLog.info("Created tap \(self.tapID) for processes \(self.processObjectIDs, privacy: .public), format: \(Self.tapFormatDescription(self.tapID), privacy: .public)")
 
         // 2. The aggregate device: your current output device plus the tap.
         guard let outputID = CoreAudioHelpers.defaultOutputDeviceID(),
               let outputUID = CoreAudioHelpers.deviceUID(of: outputID) else {
             throw TapError(step: "Finding the output device", status: -1)
         }
+        tapLog.info("Output device \(outputID) uid=\(outputUID, privacy: .public)")
 
         let aggregate: [String: Any] = [
             kAudioAggregateDeviceNameKey: "MacMixer",
@@ -88,13 +103,26 @@ final class AppTap {
 
         // 3. The audio callback. Capture only the raw pointer, nothing else.
         let gain = self.gain
+        let callbackCount = self.callbackCount
         status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) { _, input, _, output, _ in
+            callbackCount.pointee &+= 1
             AppTap.render(input: input, output: output, gain: gain)
         }
         guard status == noErr else { throw TapError(step: "Creating the audio callback", status: status) }
 
         status = AudioDeviceStart(aggregateID, ioProcID)
         guard status == noErr else { throw TapError(step: "Starting audio", status: status) }
+        tapLog.info("Started aggregate device \(self.aggregateID)")
+    }
+
+    // For the log: the tap's sample rate and channel count, e.g. "48000 Hz, 2 ch".
+    private static func tapFormatDescription(_ tapID: AudioObjectID) -> String {
+        var address = CoreAudioHelpers.address(kAudioTapPropertyFormat)
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &format)
+        guard status == noErr else { return "unknown (error \(status))" }
+        return "\(format.mSampleRate) Hz, \(format.mChannelsPerFrame) ch"
     }
 
     // Tear everything down in reverse order. Once the tap is destroyed,

@@ -68,14 +68,48 @@ final class VolumeController: ObservableObject {
         // Leave apps at full volume alone.
         guard gain < 0.999, let processes = processesByApp[appID] else { return }
 
+        startTap(for: appID, processes: processes, gain: gain, attempt: 1)
+    }
+
+    private func startTap(for appID: String, processes: [AudioObjectID], gain: Float, attempt: Int) {
+        for objectID in processes {
+            let pid = CoreAudioHelpers.pid(of: objectID).map(String.init) ?? "?"
+            tapLog.info("\(appID, privacy: .public): process object \(objectID) pid \(pid, privacy: .public) playing=\(CoreAudioHelpers.isRunningOutput(objectID))")
+        }
+
         let tap = AppTap(processObjectIDs: processes, gain: gain)
         do {
             try tap.start()
             taps[appID] = tap
             lastError = nil
         } catch {
+            tapLog.error("\(appID, privacy: .public): \(String(describing: error), privacy: .public)")
             lastError = "Couldn't control this app's volume: \(error)"
             // `tap` is released here and its deinit undoes anything half-created.
+            return
+        }
+
+        // Health check: a tap can be created "successfully" but never actually
+        // run (for example if it was made while the permission prompt was still
+        // on screen). Then the app isn't muted and the slider does nothing.
+        // If our audio callback hasn't run after a second, rebuild the tap.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak tap] in
+            MainActor.assumeIsolated {
+                guard let self, let tap, self.taps[appID] === tap else { return }  // replaced or removed meanwhile
+                if tap.hasDeliveredAudio {
+                    tapLog.info("\(appID, privacy: .public): tap is running (attempt \(attempt))")
+                    return
+                }
+                tapLog.error("\(appID, privacy: .public): tap never ran (attempt \(attempt))")
+                self.taps[appID] = nil
+                if attempt < 3 {
+                    self.startTap(for: appID, processes: tap.processObjectIDs,
+                                  gain: self.isMuted(appID) ? 0 : self.volume(for: appID),
+                                  attempt: attempt + 1)
+                } else {
+                    self.lastError = "Couldn't control this app's volume: the audio tap never started."
+                }
+            }
         }
     }
 }
