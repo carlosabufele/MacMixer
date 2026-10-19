@@ -22,7 +22,11 @@ struct TapError: Error, CustomStringConvertible {
 //
 // Real-time rule: the IOProc block must never allocate memory, take locks, or
 // touch Swift objects. So it only uses raw pointers to a few numbers.
-final class AppTap {
+//
+// Threads: start() and stop() run on VolumeController's tap queue, one at a time.
+// setGain() / takePeak() are called from the main thread and only touch the
+// shared numbers, which is why it's safe to mark this @unchecked Sendable.
+final class AppTap: @unchecked Sendable {
     let processObjectIDs: [AudioObjectID]
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
