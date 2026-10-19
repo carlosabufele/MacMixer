@@ -11,6 +11,8 @@
 		A10000000000000000000012 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000013 /* AudioProcessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* AudioProcessMonitor.swift */; };
 		A10000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* Assets.xcassets */; };
+		A10000000000000000000015 /* AppTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* AppTap.swift */; };
+		A10000000000000000000016 /* VolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* VolumeController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +21,9 @@
 		A10000000000000000000003 /* AudioProcessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessMonitor.swift; sourceTree = "<group>"; };
 		A10000000000000000000004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000005 /* MacMixer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacMixer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000006 /* AppTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTap.swift; sourceTree = "<group>"; };
+		A10000000000000000000007 /* VolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeController.swift; sourceTree = "<group>"; };
+		A10000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +51,10 @@
 				A10000000000000000000001 /* MacMixerApp.swift */,
 				A10000000000000000000002 /* ContentView.swift */,
 				A10000000000000000000003 /* AudioProcessMonitor.swift */,
+				A10000000000000000000006 /* AppTap.swift */,
+				A10000000000000000000007 /* VolumeController.swift */,
 				A10000000000000000000004 /* Assets.xcassets */,
+				A10000000000000000000008 /* Info.plist */,
 			);
 			path = MacMixer;
 			sourceTree = "<group>";
@@ -131,6 +139,8 @@
 				A10000000000000000000011 /* MacMixerApp.swift in Sources */,
 				A10000000000000000000012 /* ContentView.swift in Sources */,
 				A10000000000000000000013 /* AudioProcessMonitor.swift in Sources */,
+				A10000000000000000000015 /* AppTap.swift in Sources */,
+				A10000000000000000000016 /* VolumeController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,6 +216,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_FILE = MacMixer/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -233,6 +244,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_FILE = MacMixer/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -9,7 +9,7 @@ struct MacMixerApp: App {
 
     var body: some Scene {
         MenuBarExtra("MacMixer", systemImage: "slider.vertical.3") {
-            ContentView(monitor: monitor)
+            ContentView(monitor: monitor, volumes: monitor.volumes)
         }
         .menuBarExtraStyle(.window)
     }

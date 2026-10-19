@@ -14,10 +14,13 @@ struct AudioApp: Identifiable {
 }
 
 // Watches Core Audio for processes that use audio and keeps `apps` up to date.
-// Everything here runs on the main thread; nothing touches real-time audio yet.
+// Everything here runs on the main thread. The real-time audio work is in AppTap.
 @MainActor
 final class AudioProcessMonitor: ObservableObject {
     @Published private(set) var apps: [AudioApp] = []
+
+    // Per-app volume and mute, kept in step with the app list.
+    let volumes = VolumeController()
 
     // Listener blocks we registered, kept so we can remove them later.
     private var processListeners: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
@@ -64,6 +67,7 @@ final class AudioProcessMonitor: ObservableObject {
         apps = grouped.values.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+        volumes.sync(with: apps)
     }
 
     // MARK: - Live updates
@@ -141,7 +145,27 @@ enum CoreAudioHelpers {
     }
 
     static func bundleID(of objectID: AudioObjectID) -> String? {
-        var address = address(kAudioProcessPropertyBundleID)
+        stringProperty(kAudioProcessPropertyBundleID, of: objectID)
+    }
+
+    // The device sound currently goes to (speakers, headphones, AirPods...).
+    static func defaultOutputDeviceID() -> AudioObjectID? {
+        var address = address(kAudioHardwarePropertyDefaultOutputDevice)
+        var deviceID = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
+        )
+        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
+        return deviceID
+    }
+
+    static func deviceUID(of deviceID: AudioObjectID) -> String? {
+        stringProperty(kAudioDevicePropertyDeviceUID, of: deviceID)
+    }
+
+    private static func stringProperty(_ selector: AudioObjectPropertySelector, of objectID: AudioObjectID) -> String? {
+        var address = address(selector)
         var value: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = withUnsafeMutablePointer(to: &value) {
