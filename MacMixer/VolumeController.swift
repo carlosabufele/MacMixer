@@ -19,6 +19,8 @@ final class VolumeController: ObservableObject {
     // once an app is tapped, Core Audio may stop reporting it as playing.
     @Published private(set) var sounding: Set<String> = []
     private var soundCheckTimer: Timer?
+    // When each tapped app last passed real sound.
+    private var lastHeard: [String: Date] = [:]
 
     // Taps that are built and running.
     private var taps: [String: AppTap] = [:]
@@ -193,6 +195,7 @@ final class VolumeController: ObservableObject {
     private func removeTap(_ appID: String) {
         guard let tap = taps.removeValue(forKey: appID) else { return }
         sounding.remove(appID)
+        lastHeard[appID] = nil
         destroyOnTapQueue(tap)
         updateSoundTimer()
     }
@@ -210,27 +213,37 @@ final class VolumeController: ObservableObject {
         taps.removeAll()
         building.removeAll()
         sounding.removeAll()
+        lastHeard.removeAll()
         updateSoundTimer()
         tapQueue.sync { all.forEach { $0.stop() } }
     }
 
     // MARK: - "Playing" detection for tapped apps
 
-    // While any tap exists, check twice a second which taps are passing
-    // loud-enough sound. Only publishes changes, so the UI doesn't redraw for nothing.
+    // While any tap exists, check 5 times a second which taps are passing
+    // loud-enough sound. An app stays "playing" for 1.5 s after its last sound,
+    // so it doesn't flicker to "Not playing" during a quiet bit or between songs.
+    // Only publishes changes, so the UI doesn't redraw for nothing.
+    private static let checkInterval: TimeInterval = 0.2
+    private static let holdTime: TimeInterval = 1.5
+
     private func updateSoundTimer() {
         if taps.isEmpty {
             soundCheckTimer?.invalidate()
             soundCheckTimer = nil
         } else if soundCheckTimer == nil {
-            soundCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            soundCheckTimer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.checkSounding() }
             }
         }
     }
 
     private func checkSounding() {
-        let now = Set(taps.filter { $0.value.takePeak() > 0.0001 }.keys)
-        if now != sounding { sounding = now }
+        let now = Date()
+        for (appID, tap) in taps where tap.takePeak() > 0.0001 {
+            lastHeard[appID] = now
+        }
+        let current = Set(lastHeard.filter { now.timeIntervalSince($0.value) < Self.holdTime }.keys)
+        if current != sounding { sounding = current }
     }
 }
