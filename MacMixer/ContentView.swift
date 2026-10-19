@@ -14,6 +14,11 @@ struct ContentView: View {
     private var playing: [AudioApp] { monitor.apps.filter { isPlaying($0) } }
     private var notPlaying: [AudioApp] { monitor.apps.filter { !isPlaying($0) } }
 
+    // "1.0.0", from the app's Info.plist (MARKETING_VERSION in Xcode).
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SoundCard(output: output)
@@ -94,6 +99,10 @@ struct ContentView: View {
                         NSWorkspace.shared.open(url)
                     }
                 }
+                Spacer()
+                Text("MacMixer \(appVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
