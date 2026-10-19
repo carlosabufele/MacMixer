@@ -108,6 +108,7 @@ struct SoundCard: View {
                         .frame(width: 20)
                 }
                 .buttonStyle(.borderless)
+                .focusEffectDisabled()   // no keyboard-focus ring when the panel opens
                 .disabled(!output.canMute)
                 .help(output.isMuted ? "Unmute" : "Mute")
 
