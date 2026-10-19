@@ -26,6 +26,9 @@ final class VolumeController: ObservableObject {
 
     // Taps that are built and running.
     private var taps: [String: AppTap] = [:]
+    // Old taps kept alive for a moment after being replaced, until the new tap
+    // has actually started carrying sound (see retire(_:for:replacement:)).
+    private var retiring: [String: AppTap] = [:]
     // Apps whose tap is being built on tapQueue right now, with a number that
     // identifies the build so a stale result can be thrown away.
     private var building: [String: Int] = [:]
@@ -148,6 +151,7 @@ final class VolumeController: ObservableObject {
 
         if let tap = taps[appID] {
             tap.setGain(gain)            // just a number; the audio thread picks it up
+            retiring[appID]?.setGain(gain)
             return
         }
 
@@ -215,7 +219,7 @@ final class VolumeController: ObservableObject {
         // The slider may have moved (or been dragged back to 100%) while we waited.
         tap.setGain(currentGain(appID))
         if let old = taps[appID] {
-            destroyOnTapQueue(old)   // the new tap takes over from here
+            retire(old, for: appID, replacement: tap)
         }
         taps[appID] = tap
         lastError = nil
@@ -247,7 +251,36 @@ final class VolumeController: ObservableObject {
         }
     }
 
+    // Keeps a replaced tap running until its replacement's audio callback has
+    // run, which is the moment Core Audio starts muting the app through the new
+    // tap. Destroying the old one any earlier would let the app play at full
+    // volume for a few milliseconds. Gives up after 2 s (e.g. the app paused).
+    private func retire(_ old: AppTap, for appID: String, replacement: AppTap) {
+        if let previous = retiring.removeValue(forKey: appID) {
+            destroyOnTapQueue(previous)
+        }
+        retiring[appID] = old
+        waitThenDestroy(old, appID: appID, replacement: replacement, deadline: Date().addingTimeInterval(2))
+    }
+
+    private func waitThenDestroy(_ old: AppTap, appID: String, replacement: AppTap, deadline: Date) {
+        guard retiring[appID] === old else { return }   // already cleaned up elsewhere
+        if replacement.hasDeliveredAudio || Date() > deadline || taps[appID] !== replacement {
+            retiring[appID] = nil
+            destroyOnTapQueue(old)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.waitThenDestroy(old, appID: appID, replacement: replacement, deadline: deadline)
+            }
+        }
+    }
+
     private func removeTap(_ appID: String) {
+        if let old = retiring.removeValue(forKey: appID) {
+            destroyOnTapQueue(old)
+        }
         guard let tap = taps.removeValue(forKey: appID) else { return }
         sounding.remove(appID)
         lastHeard[appID] = nil
@@ -267,8 +300,9 @@ final class VolumeController: ObservableObject {
     // private taps and aggregate devices itself when the process dies.
     func removeAllTapsBeforeQuit() {
         saveSettings()
-        let all = Array(taps.values)
+        let all = Array(taps.values) + Array(retiring.values)
         taps.removeAll()
+        retiring.removeAll()
         building.removeAll()
         sounding.removeAll()
         lastHeard.removeAll()
