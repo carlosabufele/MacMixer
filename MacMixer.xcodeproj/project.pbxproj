@@ -14,6 +14,7 @@
 		A10000000000000000000015 /* AppTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* AppTap.swift */; };
 		A10000000000000000000016 /* VolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* VolumeController.swift */; };
 		A10000000000000000000018 /* OutputDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000A /* OutputDevice.swift */; };
+		A10000000000000000000019 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000B /* LaunchAtLogin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		A10000000000000000000007 /* VolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeController.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000000000000000000000A /* OutputDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputDevice.swift; sourceTree = "<group>"; };
+		A1000000000000000000000B /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +58,7 @@
 				A10000000000000000000006 /* AppTap.swift */,
 				A10000000000000000000007 /* VolumeController.swift */,
 				A1000000000000000000000A /* OutputDevice.swift */,
+				A1000000000000000000000B /* LaunchAtLogin.swift */,
 				A10000000000000000000004 /* Assets.xcassets */,
 				A10000000000000000000008 /* Info.plist */,
 			);
@@ -145,6 +148,7 @@
 				A10000000000000000000015 /* AppTap.swift in Sources */,
 				A10000000000000000000016 /* VolumeController.swift in Sources */,
 				A10000000000000000000018 /* OutputDevice.swift in Sources */,
+				A10000000000000000000019 /* LaunchAtLogin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject var monitor: AudioProcessMonitor
     @ObservedObject var volumes: VolumeController
     @ObservedObject var output: OutputDevice
+    @ObservedObject var login: LaunchAtLogin
     @State private var showNotPlaying = false
 
     // An app counts as playing if Core Audio says so, or if its tap is passing sound.
@@ -66,6 +67,28 @@ struct ContentView: View {
             Divider()
 
             HStack {
+                Text("Open at Login")
+                Spacer()
+                Toggle("Open at Login", isOn: Binding(
+                    get: { login.isEnabled },
+                    set: { login.setEnabled($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
+            if login.needsApproval {
+                Button("Approve in System Settings…") { login.openLoginItemsSettings() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+            }
+            if let message = login.errorMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
                 Button("Sound Settings…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
                         NSWorkspace.shared.open(url)
@@ -82,6 +105,7 @@ struct ContentView: View {
         }
         .padding(12)
         .frame(width: 320)
+        .onAppear { login.refresh() }   // in case it was changed in System Settings
     }
 }
 

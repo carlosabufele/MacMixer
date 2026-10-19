@@ -8,10 +8,12 @@ struct MacMixerApp: App {
     @StateObject private var monitor = AudioProcessMonitor()
     // The Mac's current output device and its volume (the "Sound" card).
     @StateObject private var output = OutputDevice()
+    // The "Open at Login" switch.
+    @StateObject private var login = LaunchAtLogin()
 
     var body: some Scene {
         MenuBarExtra("MacMixer", systemImage: "slider.vertical.3") {
-            ContentView(monitor: monitor, volumes: monitor.volumes, output: output)
+            ContentView(monitor: monitor, volumes: monitor.volumes, output: output, login: login)
         }
         .menuBarExtraStyle(.window)
     }
