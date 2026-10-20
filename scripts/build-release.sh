@@ -36,7 +36,7 @@ echo "Built MacMixer $VERSION -> releases/MacMixer-$VERSION.zip"
 
 if [[ "${1:-}" == "--install" ]]; then
     # Quit any running copy (it removes its taps on the way out).
-    pkill -TERM -f "MacMixer.app/Contents/MacOS/MacMixer" || true
+    pkill -TERM -x MacMixer || true   # exact process name only
     sleep 2
     rm -rf /Applications/MacMixer.app
     ditto "$APP" /Applications/MacMixer.app
