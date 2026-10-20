@@ -28,6 +28,17 @@ final class AudioProcessMonitor: ObservableObject {
     // True while a refresh is already queued for the next run-loop turn.
     private var refreshQueued = false
 
+    // What we've worked out about each process object. None of it changes while
+    // the process runs, so it's looked up once instead of on every refresh.
+    private struct ProcessFacts {
+        let pid: pid_t
+        let bundleID: String?
+        let owner: NSRunningApplication?   // the Dock app it belongs to, if any
+    }
+    private var facts: [AudioObjectID: ProcessFacts] = [:]
+    // Small copies of app icons, by app key (see AppResolver.smallIcon).
+    private var icons: [String: NSImage] = [:]
+
     init() {
         listenForProcessListChanges()
         refresh()
@@ -64,13 +75,15 @@ final class AudioProcessMonitor: ObservableObject {
             }
         }
 
+        // Forget processes that are gone.
+        let current = Set(objectIDs)
+        facts = facts.filter { current.contains($0.key) }
+
         var grouped: [String: AudioApp] = [:]
         for objectID in objectIDs {
-            guard let pid = CoreAudioHelpers.pid(of: objectID), pid != getpid() else { continue }
-
-            let bundleID = CoreAudioHelpers.bundleID(of: objectID)
+            guard let info = processFacts(objectID), info.pid != getpid() else { continue }
+            let pid = info.pid, bundleID = info.bundleID, owner = info.owner
             let isPlaying = CoreAudioHelpers.isRunningOutput(objectID)
-            let owner = AppResolver.owningApp(pid: pid, bundleID: bundleID)
 
             // Lots of background system processes register with Core Audio.
             // Only show those if they are actually making sound.
@@ -85,7 +98,7 @@ final class AudioProcessMonitor: ObservableObject {
                 grouped[key] = AudioApp(
                     id: key,
                     name: AppResolver.displayName(owner: owner, pid: pid, bundleID: bundleID),
-                    icon: AppResolver.icon(owner: owner, pid: pid),
+                    icon: icon(for: key, owner: owner, pid: pid),
                     isPlaying: isPlaying,
                     processObjectIDs: [objectID]
                 )
@@ -96,6 +109,23 @@ final class AudioProcessMonitor: ObservableObject {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         volumes.sync(with: apps)
+    }
+
+    private func processFacts(_ objectID: AudioObjectID) -> ProcessFacts? {
+        if let known = facts[objectID] { return known }
+        guard let pid = CoreAudioHelpers.pid(of: objectID) else { return nil }
+        let bundleID = CoreAudioHelpers.bundleID(of: objectID)
+        let info = ProcessFacts(pid: pid, bundleID: bundleID,
+                                owner: AppResolver.owningApp(pid: pid, bundleID: bundleID))
+        facts[objectID] = info
+        return info
+    }
+
+    private func icon(for key: String, owner: NSRunningApplication?, pid: pid_t) -> NSImage {
+        if let cached = icons[key] { return cached }
+        let small = AppResolver.smallIcon(AppResolver.icon(owner: owner, pid: pid))
+        icons[key] = small
+        return small
     }
 
     // MARK: - Live updates
@@ -274,6 +304,23 @@ enum AppResolver {
         owner?.icon
             ?? NSRunningApplication(processIdentifier: pid)?.icon
             ?? NSWorkspace.shared.icon(for: .application)
+    }
+
+    // App icons come with many large sizes (up to 1024 px). The panel shows them
+    // at 28 pt, so draw one 64 x 64 px copy (sharp on Retina) and keep only that.
+    static func smallIcon(_ image: NSImage) -> NSImage {
+        let pixels = 64
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return image }
+        rep.size = NSSize(width: 32, height: 32)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: 32, height: 32))
+        NSGraphicsContext.restoreGraphicsState()
+        let small = NSImage(size: rep.size)
+        small.addRepresentation(rep)
+        return small
     }
 
     // Asks the kernel for a process's parent PID. Returns nil for launchd (PID 1).
