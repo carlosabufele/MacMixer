@@ -9,8 +9,10 @@ Volume Mixer.
 
 ## Features
 
-- **Live app list.** Shows every app that's making sound, updating as apps
-  start and stop. Apps that use audio but are quiet sit under "Not playing".
+- **Live app list.** Shows every app that's making sound, updating within
+  about half a second as apps start and stop. Apps that use audio but are
+  quiet sit under "Not playing". Sound from helper processes (Chrome's audio
+  service, Safari's web media) is shown under the app it belongs to.
 - **Per-app volume and mute.** A slider for each app (0–100%). Click an app's
   icon to mute it.
 - **Master volume.** A Sound card for your current output device, which
@@ -30,7 +32,7 @@ Volume Mixer.
 
 ## Install
 
-1. Download `MacMixer-1.0.0.zip` and double-click it to unzip.
+1. Download `MacMixer-1.1.0.zip` (the latest release) and double-click it to unzip.
 2. Drag **MacMixer.app** into your **Applications** folder.
 3. Open it. This build isn't signed with an Apple Developer ID, so the first
    time macOS may say it can't verify the developer. **Right-click
@@ -75,6 +77,11 @@ MacMixer, every tap is removed and apps go straight back to normal.
 3. `scripts/make-icon.swift` redraws the app icon.
 
 ## Known limitations
+
+- **Undocumented macOS call.** To link Safari's (and other web views') sound to
+  the right app, MacMixer uses macOS's "responsible process" lookup, which
+  isn't a public API. If a future macOS removes it, MacMixer falls back to
+  older checks and that sound may show up under a helper's name instead.
 
 - **First moments of a muted app.** An app is only tapped once it actually
   starts playing, so the first few milliseconds of sound from a muted or
