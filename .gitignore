@@ -4,3 +4,8 @@ xcuserdata/
 *.xcuserstate
 .DS_Store
 releases/
+
+# Editor/tool clutter that should never be committed
+.Rhistory
+.RData
+.Rproj.user/

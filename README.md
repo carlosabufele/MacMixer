@@ -99,7 +99,7 @@ MacMixer, every tap is removed and apps go straight back to normal.
 
 ## Credits
 
-Made by Carlos Abufele at **Clutch Apps**: Mac apps that come in clutch.
+Made by Carlos Abufele at **Clutch Apps**: apps that come in clutch.
 Follow along on X: [@Clutch_Apps_](https://x.com/Clutch_Apps_).
 
 Built with Swift, SwiftUI and Core Audio.
