@@ -25,16 +25,44 @@ final class AudioProcessMonitor: ObservableObject {
     // Listener blocks we registered, kept so we can remove them later.
     private var processListeners: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
 
+    // True while a refresh is already queued for the next run-loop turn.
+    private var refreshQueued = false
+
     init() {
         listenForProcessListChanges()
         refresh()
+    }
+
+    // Core Audio often sends a burst of notifications at once (an app starting
+    // can change the process list and several "is playing" flags together).
+    // Ask for a refresh here; it runs once, right after the burst.
+    func setNeedsRefresh() {
+        guard !refreshQueued else { return }
+        refreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.refreshQueued = false
+                self?.refresh()
+            }
+        }
     }
 
     // MARK: - Building the list
 
     func refresh() {
         let objectIDs = CoreAudioHelpers.processObjectIDs()
-        updatePerProcessListeners(for: objectIDs)
+        let newObjects = updatePerProcessListeners(for: objectIDs)
+
+        // An app that starts playing the moment it appears can flip its "is
+        // playing" flag before our listener for it is in place, and then we'd
+        // never hear about it. So look again shortly after a new process shows up.
+        if newObjects {
+            for delay in [0.25, 1.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    MainActor.assumeIsolated { self?.setNeedsRefresh() }
+                }
+            }
+        }
 
         var grouped: [String: AudioApp] = [:]
         for objectID in objectIDs {
@@ -78,13 +106,14 @@ final class AudioProcessMonitor: ObservableObject {
         AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main
         ) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            MainActor.assumeIsolated { self?.setNeedsRefresh() }
         }
     }
 
     // Each process also tells us when it starts/stops *playing* (IsRunningOutput).
     // Add a listener for new processes and remove listeners for ones that are gone.
-    private func updatePerProcessListeners(for objectIDs: [AudioObjectID]) {
+    // Returns true if there were new processes.
+    private func updatePerProcessListeners(for objectIDs: [AudioObjectID]) -> Bool {
         var address = CoreAudioHelpers.address(kAudioProcessPropertyIsRunningOutput)
         let current = Set(objectIDs)
 
@@ -93,14 +122,17 @@ final class AudioProcessMonitor: ObservableObject {
             processListeners[objectID] = nil
         }
 
+        var added = false
         for objectID in objectIDs where processListeners[objectID] == nil {
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                MainActor.assumeIsolated { self?.setNeedsRefresh() }
             }
             if AudioObjectAddPropertyListenerBlock(objectID, &address, DispatchQueue.main, block) == noErr {
                 processListeners[objectID] = block
+                added = true
             }
         }
+        return added
     }
 }
 
