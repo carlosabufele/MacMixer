@@ -8,9 +8,11 @@ Performance and responsiveness.
 - An app that starts playing now shows under Playing within a few hundred
   milliseconds. Before, an app that started playing the instant it appeared
   could stay under Not playing until something else changed.
-- Refreshing the app list is about 3–4× cheaper (≈12 ms instead of ≈45 ms):
-  each process is looked up once instead of on every change, and bursts of
-  Core Audio notifications cause one refresh instead of several.
+- Refreshing the app list is about 25× cheaper (≈2 ms instead of ≈45 ms):
+  each process is looked up once, only processes that changed are asked
+  about, and bursts of Core Audio notifications cause one refresh.
+- About 9× less CPU when apps start and stop playing: the menu bar icon is no
+  longer redrawn on every change. Memory stays flat instead of creeping up.
 - The app list is only republished (and redrawn) when something visible
   changed.
 - App icons are kept as small 64 × 64 px images instead of full-size icons.
