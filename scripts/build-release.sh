@@ -25,7 +25,12 @@ codesign --verify --strict "$APP"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
 mkdir -p releases
-rm -f "releases/MacMixer-$VERSION.zip"
+# Never overwrite a release that already exists (e.g. MacMixer-1.0.0.zip):
+# bump MARKETING_VERSION in Xcode for a new build instead.
+if [[ -e "releases/MacMixer-$VERSION.zip" ]]; then
+    echo "releases/MacMixer-$VERSION.zip already exists; bump the version first." >&2
+    exit 1
+fi
 ditto -c -k --keepParent "$APP" "releases/MacMixer-$VERSION.zip"
 echo "Built MacMixer $VERSION -> releases/MacMixer-$VERSION.zip"
 
