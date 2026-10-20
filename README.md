@@ -33,9 +33,9 @@ down to 40%, keep Chrome at 100%, mute Discord, all from a Control Center-style
 panel in your menu bar. Think Windows Volume Mixer, but fast, featherweight and
 native to macOS.
 
-<!-- Screenshot: add docs/screenshot.png and uncomment the next line.
-<p align="center"><img src="docs/screenshot.png" alt="MacMixer panel" width="380"></p>
--->
+<p align="center">
+  <img src="docs/screenshot.png" alt="The MacMixer panel: Chrome muted, Music at 41%, Safari at 67%" width="420">
+</p>
 
 ## ✨ Features
 
