@@ -67,6 +67,13 @@ final class AudioProcessMonitor: ObservableObject {
         }
     }
 
+    // The panel just opened or closed. On open, re-read everything so what you
+    // see is current even if a notification was missed.
+    func setPanelOpen(_ open: Bool) {
+        volumes.setPanelOpen(open)
+        if open { setNeedsRefresh() }
+    }
+
     // MARK: - Building the list
 
     func refresh() {

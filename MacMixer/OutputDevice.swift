@@ -100,6 +100,9 @@ final class OutputDevice: ObservableObject {
         readState()
     }
 
+    // Re-read the device's name, volume and mute (e.g. when the panel opens).
+    func refresh() { readState() }
+
     private func readState() {
         guard deviceID != kAudioObjectUnknown else {
             name = "No output device"

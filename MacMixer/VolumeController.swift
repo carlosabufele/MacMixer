@@ -21,6 +21,9 @@ final class VolumeController: ObservableObject {
     // once an app is tapped, Core Audio may stop reporting it as playing.
     @Published private(set) var sounding: Set<String> = []
     private var soundCheckTimer: Timer?
+    // The "playing" check only matters for what's on screen, so it only runs
+    // while the panel is open.
+    private var panelIsOpen = false
     // When each tapped app last passed real sound.
     private var lastHeard: [String: Date] = [:]
 
@@ -89,6 +92,12 @@ final class VolumeController: ObservableObject {
         var address = CoreAudioHelpers.address(kAudioHardwarePropertyDefaultOutputDevice)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, deviceChanged)
         watchSampleRate()
+    }
+
+    func setPanelOpen(_ open: Bool) {
+        panelIsOpen = open
+        if open { checkSounding() }   // show the current state right away
+        updateSoundTimer()
     }
 
     func volume(for appID: String) -> Float { volumes[appID] ?? 1 }
@@ -402,15 +411,15 @@ final class VolumeController: ObservableObject {
 
     // MARK: - "Playing" detection for tapped apps
 
-    // While any tap exists, check 5 times a second which taps are passing
-    // loud-enough sound. An app stays "playing" for 1.5 s after its last sound,
+    // While the panel is open and any tap exists, check 5 times a second which
+    // taps are passing loud-enough sound. An app stays "playing" for 1.5 s after its last sound,
     // so it doesn't flicker to "Not playing" during a quiet bit or between songs.
     // Only publishes changes, so the UI doesn't redraw for nothing.
     private static let checkInterval: TimeInterval = 0.2
     private static let holdTime: TimeInterval = 1.5
 
     private func updateSoundTimer() {
-        if taps.isEmpty {
+        if taps.isEmpty || !panelIsOpen {
             soundCheckTimer?.invalidate()
             soundCheckTimer = nil
         } else if soundCheckTimer == nil {
