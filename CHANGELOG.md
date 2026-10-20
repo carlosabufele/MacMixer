@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 — unreleased
+
+Performance and responsiveness.
+
+### Changed
+- An app that starts playing now shows under Playing within a few hundred
+  milliseconds. Before, an app that started playing the instant it appeared
+  could stay under Not playing until something else changed.
+- Refreshing the app list is about 3–4× cheaper (≈12 ms instead of ≈45 ms):
+  each process is looked up once instead of on every change, and bursts of
+  Core Audio notifications cause one refresh instead of several.
+- The app list is only republished (and redrawn) when something visible
+  changed.
+- App icons are kept as small 64 × 64 px images instead of full-size icons.
+- The 0.2 s "is it playing" check on turned-down apps only runs while the
+  panel is open. Opening the panel refreshes everything at once.
+
 ## 1.0.0 — 2026-10-19
 
 First stable release.
