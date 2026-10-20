@@ -84,7 +84,7 @@ final class AudioProcessMonitor: ObservableObject {
         // playing" flag before our listener for it is in place, and then we'd
         // never hear about it. So look again shortly after a new process shows up.
         if newObjects {
-            for delay in [0.25, 1.0] {
+            for delay in [0.1, 0.3, 1.0] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     MainActor.assumeIsolated { self?.setNeedsRefresh() }
                 }
