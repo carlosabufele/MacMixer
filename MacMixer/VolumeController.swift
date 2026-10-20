@@ -37,6 +37,10 @@ final class VolumeController: ObservableObject {
     private var building: [String: Int] = [:]
     private var nextBuildNumber = 0
 
+    // Called before a volume or mute change, so AudioProcessMonitor can make
+    // sure it knows which of the app's processes are playing right now.
+    var willAdjust: ((String) -> Void)?
+
     private var processesByApp: [String: [AudioObjectID]] = [:]
     private var playingByApp: [String: [AudioObjectID]] = [:]
 
@@ -100,17 +104,29 @@ final class VolumeController: ObservableObject {
         updateSoundTimer()
     }
 
+    // Apps that should be turned down or muted but don't have a tap yet,
+    // usually because they aren't playing.
+    func appsWaitingForTap() -> [String] {
+        processesByApp.keys.filter { appID in
+            taps[appID] == nil && building[appID] == nil && currentGain(appID) < 0.999
+        }
+    }
+
     func volume(for appID: String) -> Float { volumes[appID] ?? 1 }
     func isSounding(_ appID: String) -> Bool { sounding.contains(appID) }
     func isMuted(_ appID: String) -> Bool { muted.contains(appID) }
 
     func setVolume(_ value: Float, for appID: String) {
+        // Only needed when there's no tap yet; once tapped, a slider move is
+        // just a number for the audio thread, so dragging stays cheap.
+        if taps[appID] == nil { willAdjust?(appID) }
         volumes[appID] = value
         apply(appID)
         scheduleSave()
     }
 
     func toggleMute(_ appID: String) {
+        if taps[appID] == nil { willAdjust?(appID) }
         if muted.contains(appID) { muted.remove(appID) } else { muted.insert(appID) }
         apply(appID)
         scheduleSave()

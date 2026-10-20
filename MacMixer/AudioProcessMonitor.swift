@@ -46,15 +46,41 @@ final class AudioProcessMonitor: ObservableObject {
     }
     private var facts: [AudioObjectID: ProcessFacts] = [:]
     // Whether each process is playing. Each process's own listener keeps its
-    // entry current, so a refresh doesn't have to ask Core Audio about every
-    // process again (each question is a round-trip to the audio server).
+    // entry current (see updatePerProcessListeners), so a refresh doesn't have to
+    // ask Core Audio about every process again (each question is a round-trip
+    // to the audio server).
     private var playingState: [AudioObjectID: Bool] = [:]
     // Small copies of app icons, by app key (see AppResolver.smallIcon).
     private var icons: [String: NSImage] = [:]
 
+    // Safety net, once a second: re-checks every process while the panel is open,
+    // and otherwise only apps that are turned down but not tapped yet (so they get
+    // their tap the moment they start playing). Usually that's nothing to check.
+    private var revalidateTimer: Timer?
+    private var panelIsOpen = false
+
     init() {
         listenForProcessListChanges()
         refresh()
+        // Before the user changes an app's volume, make sure we know which of its
+        // processes are playing right now, so its tap is built from the right ones.
+        volumes.willAdjust = { [weak self] appID in self?.revalidate(appIDs: [appID]) }
+
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.safetyNetTick() }
+        }
+        timer.tolerance = 0.5   // lets macOS batch this wake-up with others
+        RunLoop.main.add(timer, forMode: .common)
+        revalidateTimer = timer
+    }
+
+    private func safetyNetTick() {
+        if panelIsOpen {
+            revalidate(appIDs: nil)
+        } else {
+            let waiting = volumes.appsWaitingForTap()
+            if !waiting.isEmpty { revalidate(appIDs: waiting) }
+        }
     }
 
     // Core Audio often sends a burst of notifications at once (an app starting
@@ -74,6 +100,7 @@ final class AudioProcessMonitor: ObservableObject {
     // The panel just opened or closed. On open, re-read everything so what you
     // see is current even if a notification was missed.
     func setPanelOpen(_ open: Bool) {
+        panelIsOpen = open
         volumes.setPanelOpen(open)
         if open {
             playingState.removeAll()   // ask Core Audio afresh, in case we missed something
@@ -175,6 +202,22 @@ final class AudioProcessMonitor: ObservableObject {
         return small
     }
 
+    // Re-asks Core Audio whether processes are playing: these apps' (nil = all),
+    // and refreshes right away if anything differs from what we had cached.
+    private func revalidate(appIDs: [String]?) {
+        let objectIDs = appIDs.map { ids in apps.filter { ids.contains($0.id) }.flatMap(\.processObjectIDs) }
+            ?? Array(playingState.keys)
+        var changed = false
+        for objectID in objectIDs {
+            let value = CoreAudioHelpers.isRunningOutput(objectID)
+            if playingState[objectID] != value {
+                playingState[objectID] = value
+                changed = true
+            }
+        }
+        if changed { refresh() }
+    }
+
     // Re-asks about these processes; refreshes only if one of them changed.
     private func recheck(_ objectIDs: [AudioObjectID]) {
         for objectID in objectIDs where playingState[objectID] != nil {
@@ -194,11 +237,20 @@ final class AudioProcessMonitor: ObservableObject {
         }
     }
 
-    // Each process also tells us when it starts/stops *playing* (IsRunningOutput).
-    // Add a listener for new processes and remove listeners for ones that are gone.
-    // Returns the processes that are new since last time.
+    // Each process also tells us when it starts or stops playing. Add a listener
+    // for new processes and remove listeners for ones that are gone. Returns the
+    // processes that are new since last time.
+    //
+    // Careful: Core Audio never sends a notification for "is running output"
+    // itself (tested on macOS 14.7: the value flips, the listener stays silent).
+    // What does change on every start/stop is the process's list of output
+    // devices, so we listen to that and then re-read "is running output".
     private func updatePerProcessListeners(for objectIDs: [AudioObjectID]) -> [AudioObjectID] {
-        var address = CoreAudioHelpers.address(kAudioProcessPropertyIsRunningOutput)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyDevices,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
         let current = Set(objectIDs)
 
         for (objectID, block) in processListeners where !current.contains(objectID) {
