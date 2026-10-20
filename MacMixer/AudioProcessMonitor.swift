@@ -327,6 +327,15 @@ enum AppResolver {
     // Sound often comes from a helper process (e.g. "Google Chrome Helper").
     // Walk up the parent chain until we hit a normal Dock app.
     static func owningApp(pid: pid_t, bundleID: String?) -> NSRunningApplication? {
+        // Best answer: ask macOS which app is "responsible" for the process (what
+        // Activity Monitor uses). This is the only way to tell that Safari's sound,
+        // which plays from a shared "com.apple.WebKit.GPU" helper started by the
+        // system, belongs to Safari.
+        if let responsible = responsiblePID(of: pid), responsible != pid,
+           let app = NSRunningApplication(processIdentifier: responsible), app.activationPolicy == .regular {
+            return app
+        }
+
         var current: pid_t? = pid
         var hops = 0
         while let p = current, hops < 10 {
@@ -375,6 +384,23 @@ enum AppResolver {
         let small = NSImage(size: rep.size)
         small.addRepresentation(rep)
         return small
+    }
+
+    // macOS's responsible_pid lookup. It's not a documented API, so we look it up
+    // by name at runtime: if a future macOS removes it, this returns nil and we
+    // fall back to the parent-process and bundle-ID checks.
+    private typealias ResponsibleFunction = @convention(c) (pid_t) -> pid_t
+    private static let responsibleFunction: ResponsibleFunction? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else {
+            return nil
+        }
+        return unsafeBitCast(symbol, to: ResponsibleFunction.self)
+    }()
+
+    private static func responsiblePID(of pid: pid_t) -> pid_t? {
+        guard let function = responsibleFunction else { return nil }
+        let result = function(pid)
+        return result > 0 ? result : nil
     }
 
     // Asks the kernel for a process's parent PID. Returns nil for launchd (PID 1).
