@@ -4,10 +4,21 @@
 
 Performance and responsiveness.
 
+### Fixed
+- Apps that start playing while already open (Music a few seconds after
+  launch, Chrome reusing its audio helper, any app after pausing) are now
+  detected within about half a second, so their sliders work. Core Audio
+  never sends the "is playing" notification MacMixer relied on; it now
+  watches each app's output devices instead, with a once-a-second safety
+  check.
+- Safari, and other apps that play sound through a web view, now show up
+  under their own name and icon ("Safari") and can be controlled. Their
+  sound comes from a shared WebKit helper that MacMixer couldn't link back
+  to the app before.
+
 ### Changed
-- An app that starts playing now shows under Playing within a few hundred
-  milliseconds. Before, an app that started playing the instant it appeared
-  could stay under Not playing until something else changed.
+- An app that starts playing the instant it appears now shows under Playing
+  within a few hundred milliseconds.
 - Refreshing the app list is about 25× cheaper (≈2 ms instead of ≈45 ms):
   each process is looked up once, only processes that changed are asked
   about, and bursts of Core Audio notifications cause one refresh.
