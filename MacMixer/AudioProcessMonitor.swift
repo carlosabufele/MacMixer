@@ -9,8 +9,17 @@ struct AudioApp: Identifiable {
     let id: String              // bundle ID when we know it, otherwise "pid-123"
     let name: String
     let icon: NSImage
-    var isPlaying: Bool
     var processObjectIDs: [AudioObjectID]
+    // The ones making sound right now. Taps are built from these (see VolumeController).
+    var playingObjectIDs: [AudioObjectID]
+
+    var isPlaying: Bool { !playingObjectIDs.isEmpty }
+
+    // Nothing changed that we show or tap? (The icon is fixed per app.)
+    func looksSame(as other: AudioApp) -> Bool {
+        id == other.id && name == other.name
+            && processObjectIDs == other.processObjectIDs && playingObjectIDs == other.playingObjectIDs
+    }
 }
 
 // Watches Core Audio for processes that use audio and keeps `apps` up to date.
@@ -91,23 +100,29 @@ final class AudioProcessMonitor: ObservableObject {
 
             let key = owner?.bundleIdentifier ?? bundleID ?? "pid-\(pid)"
             if var existing = grouped[key] {
-                existing.isPlaying = existing.isPlaying || isPlaying
                 existing.processObjectIDs.append(objectID)
+                if isPlaying { existing.playingObjectIDs.append(objectID) }
                 grouped[key] = existing
             } else {
                 grouped[key] = AudioApp(
                     id: key,
                     name: AppResolver.displayName(owner: owner, pid: pid, bundleID: bundleID),
                     icon: icon(for: key, owner: owner, pid: pid),
-                    isPlaying: isPlaying,
-                    processObjectIDs: [objectID]
+                    processObjectIDs: [objectID],
+                    playingObjectIDs: isPlaying ? [objectID] : []
                 )
             }
         }
 
-        apps = grouped.values.sorted {
+        let sorted = grouped.values.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+
+        // Most notifications don't change anything we show. Only publish (and
+        // make SwiftUI redraw) when the list really changed.
+        let unchanged = sorted.count == apps.count && zip(sorted, apps).allSatisfy { $0.looksSame(as: $1) }
+        guard !unchanged else { return }
+        apps = sorted
         volumes.sync(with: apps)
     }
 

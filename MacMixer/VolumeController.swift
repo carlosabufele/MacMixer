@@ -35,6 +35,7 @@ final class VolumeController: ObservableObject {
     private var nextBuildNumber = 0
 
     private var processesByApp: [String: [AudioObjectID]] = [:]
+    private var playingByApp: [String: [AudioObjectID]] = [:]
 
     // All Core Audio calls that create, start, stop or destroy taps happen here,
     // one at a time.
@@ -110,6 +111,7 @@ final class VolumeController: ObservableObject {
     // playing (AudioProcessMonitor refreshes on both).
     func sync(with apps: [AudioApp]) {
         processesByApp = Dictionary(apps.map { ($0.id, $0.processObjectIDs) }, uniquingKeysWith: { a, _ in a })
+        playingByApp = Dictionary(apps.map { ($0.id, $0.playingObjectIDs) }, uniquingKeysWith: { a, _ in a })
 
         for (appID, tap) in taps {
             guard processesByApp[appID] != nil else {
@@ -138,8 +140,10 @@ final class VolumeController: ObservableObject {
     // Why: a tap doesn't start until EVERY process in it is producing audio.
     // Chrome has a helper (video capture) that registers with Core Audio but
     // never plays, so a tap including it never started and Chrome stayed loud.
+    // (AudioProcessMonitor already asked Core Audio during its last refresh, which
+    // runs whenever any of these change, so we reuse its answer.)
     private func playingProcesses(of appID: String) -> [AudioObjectID] {
-        (processesByApp[appID] ?? []).filter { CoreAudioHelpers.isRunningOutput($0) }
+        playingByApp[appID] ?? []
     }
 
     private func currentGain(_ appID: String) -> Float {
