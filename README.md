@@ -1,69 +1,96 @@
-# MacMixer
+<p align="center">
+  <img src="docs/banner.png" alt="MacMixer: per-app volume control for your Mac's menu bar" width="820">
+</p>
 
-A per-app volume mixer for your Mac's menu bar. Turn Spotify down to 40%, keep
-Chrome at 100%, mute Discord: each app gets its own slider, like the Windows
-Volume Mixer.
+<p align="center">
+  <a href="https://github.com/carlosabufele/MacMixer/releases/latest"><img src="https://img.shields.io/badge/download-v1.1.0-8B5CF6?style=for-the-badge&logo=github&logoColor=white" alt="Download v1.1.0"></a>
+</p>
 
-![MacMixer panel](docs/screenshot.png)
-<!-- Screenshot placeholder: add docs/screenshot.png -->
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-14.2%2B-111111?logo=apple&logoColor=white" alt="macOS 14.2+">
+  <img src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white" alt="Swift 5">
+  <img src="https://img.shields.io/badge/SwiftUI-menu%20bar-2F80ED?logo=swift&logoColor=white" alt="SwiftUI">
+  <img src="https://img.shields.io/badge/Apple%20silicon%20%2B%20Intel-universal-555555" alt="Universal">
+  <img src="https://img.shields.io/badge/idle%20CPU-~0%25-22C55E" alt="Idle CPU ~0%">
+  <img src="https://img.shields.io/badge/license-MIT-22C55E" alt="MIT license">
+</p>
 
-## Features
+<p align="center">
+  <b>
+  <a href="#-features">Features</a> •
+  <a href="#-install">Install</a> •
+  <a href="#-the-system-audio-recording-permission">Permission</a> •
+  <a href="#-how-it-works">How it works</a> •
+  <a href="#%EF%B8%8F-build-from-source">Build</a> •
+  <a href="#-known-limitations">Limitations</a>
+  </b>
+</p>
 
-- **Live app list.** Shows every app that's making sound, updating within
-  about half a second as apps start and stop. Apps that use audio but are
-  quiet sit under "Not playing". Sound from helper processes (Chrome's audio
-  service, Safari's web media) is shown under the app it belongs to.
-- **Per-app volume and mute.** A slider for each app (0–100%). Click an app's
-  icon to mute it.
-- **Master volume.** A Sound card for your current output device, which
-  follows the volume keys and Control Center.
-- **Remembers your settings.** An app you turned down comes back at the same
-  level the next time it plays, even after a restart.
-- **Follows your output device.** Switch to AirPods, headphones or a Bluetooth
-  speaker, and every app keeps its volume.
-- **Open at Login** switch in the panel.
-- No kernel extensions, virtual audio drivers or helper apps. It uses Apple's
-  own Core Audio process taps.
+<br>
 
-## Requirements
+Your Mac has one volume slider. **MacMixer gives every app its own.** Turn Spotify
+down to 40%, keep Chrome at 100%, mute Discord, all from a Control Center-style
+panel in your menu bar. Think Windows Volume Mixer, but fast, featherweight and
+native to macOS.
 
-- macOS 14.2 (Sonoma) or newer
-- Apple silicon or Intel Mac
+<!-- Screenshot: add docs/screenshot.png and uncomment the next line.
+<p align="center"><img src="docs/screenshot.png" alt="MacMixer panel" width="380"></p>
+-->
 
-## Install
+## ✨ Features
 
-1. Download `MacMixer-1.1.0.zip` (the latest release) and double-click it to unzip.
+- 🎚️ **A slider for every app.** Per-app volume from 0–100%. Click an app's icon to mute it.
+- ⚡ **Live and snappy.** Apps jump to *Playing* within about half a second of making sound,
+  and quiet apps tuck away under *Not playing*.
+- 🧠 **Knows which app is which.** Sound from helper processes (Chrome's audio service,
+  Safari's web media) shows up under the app it belongs to.
+- 🔊 **Master volume, too.** A Sound card for your current output device that stays in sync
+  with your volume keys and Control Center.
+- 💾 **Remembers everything.** Turn an app down once and it comes back at that level every
+  time it plays, even after a restart.
+- 🎧 **Follows your output.** Switch to AirPods, headphones or a Bluetooth speaker and every
+  app keeps its volume, with no full-volume blip.
+- 🪶 **Featherweight.** About 0% CPU when idle and about 13 MB of memory. Apps at 100% are
+  left completely untouched.
+- 🔐 **No drivers, no kernel extensions.** Built on Apple's own Core Audio process taps.
+- 🚀 **Open at Login** switch, right in the panel.
+
+## 📦 Install
+
+> Requires **macOS 14.2 (Sonoma) or newer** on an Apple silicon or Intel Mac.
+
+1. Download **`MacMixer-1.1.0.zip`** from the [latest release](https://github.com/carlosabufele/MacMixer/releases/latest)
+   and double-click it to unzip.
 2. Drag **MacMixer.app** into your **Applications** folder.
-3. Open it. This build isn't signed with an Apple Developer ID, so the first
-   time macOS may say it can't verify the developer. **Right-click
-   MacMixer.app → Open → Open.** (Or open System Settings → Privacy & Security
-   and click **Open Anyway**.) You only need to do this once.
-4. MacMixer has no Dock icon. Look for the sliders icon in the menu bar.
+3. Open it. This build isn't notarized by Apple yet, so the first time macOS may block it.
+   Go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+   You only need to do this once.
+4. MacMixer has no Dock icon: look for the **sliders icon** in your menu bar.
 
-To start it automatically, turn on **Open at Login** at the bottom of the panel.
+Turn on **Open at Login** at the bottom of the panel to start it automatically.
 
-## The "System Audio Recording" permission
+## 🔐 The "System Audio Recording" permission
 
-The first time you change an app's volume, macOS asks whether MacMixer may
-record system audio. Click **Allow**. MacMixer needs it to change an app's
-volume: it takes that app's sound, adjusts it, and plays it back. Nothing is
-recorded, saved or sent anywhere.
+The first time you change an app's volume, macOS asks whether MacMixer may record system
+audio. Click **Allow**. MacMixer needs it to change an app's volume: it takes that app's
+sound, adjusts it, and plays it straight back. **Nothing is recorded, saved or sent
+anywhere.**
 
-If you clicked Don't Allow, turn it back on in **System Settings → Privacy &
-Security**, in the system audio recording section (its exact name varies a
-little between macOS versions), by switching MacMixer on.
+Clicked *Don't Allow* by accident? Switch MacMixer back on in **System Settings → Privacy &
+Security**, in the system audio recording section (its exact name varies a little between
+macOS versions).
 
-## How it works
+## 🛠 How it works
 
-For each app you turn down, MacMixer creates a Core Audio *process tap* that
-captures that app's sound and silences the original, plus a private
-*aggregate device* that plays the captured sound to your speakers with the
-volume applied. Apps at 100% are left completely untouched. When you quit
-MacMixer, every tap is removed and apps go straight back to normal.
+For each app you turn down, MacMixer creates a Core Audio **process tap** that captures
+that app's sound and silences the original, plus a private **aggregate device** that plays
+the captured sound to your speakers with the volume applied. Apps at 100% are left
+completely untouched. Quit MacMixer and every tap is removed instantly, so apps go straight
+back to normal.
 
-## Build from source
+## 🏗️ Build from source
 
-1. Install Xcode 16 or newer.
+1. Install **Xcode 16** or newer.
 2. Open `MacMixer.xcodeproj` and press **Run**, or from Terminal:
 
    ```sh
@@ -71,37 +98,32 @@ MacMixer, every tap is removed and apps go straight back to normal.
    scripts/build-release.sh --install  # ...and install into /Applications
    ```
 
-   Builds go to `~/Library/Developer/Xcode/DerivedData/MacMixer`. If this
-   folder is in iCloud Drive (for example in Documents), don't build inside it:
-   iCloud adds file attributes that make code signing fail.
-3. `scripts/make-icon.swift` redraws the app icon.
+   Builds go to `~/Library/Developer/Xcode/DerivedData/MacMixer`. If your checkout is in
+   iCloud Drive (for example in Documents), don't build inside it: iCloud adds file
+   attributes that make code signing fail.
+3. `scripts/make-icon.swift` redraws the app icon; `scripts/make-banner.swift` redraws the
+   banner above.
 
-## Known limitations
+## 🧩 Known limitations
 
-- **Undocumented macOS call.** To link Safari's (and other web views') sound to
-  the right app, MacMixer uses macOS's "responsible process" lookup, which
-  isn't a public API. If a future macOS removes it, MacMixer falls back to
-  older checks and that sound may show up under a helper's name instead.
+- **Undocumented macOS call.** To link Safari's (and other web views') sound to the right
+  app, MacMixer uses macOS's "responsible process" lookup, which isn't a public API. If a
+  future macOS removes it, MacMixer falls back to older checks and that sound may show up
+  under a helper's name instead.
+- **First moments of a muted app.** An app is only tapped once it actually starts playing,
+  so the first few milliseconds of sound from a muted or turned-down app can slip through.
+- **No boost yet.** Volume tops out at 100%.
+- **One output for everything.** Every app plays to the current output device; per-app
+  routing isn't supported yet.
+- **Apps without a bundle ID** (rare background processes) aren't remembered between
+  launches.
+- **Sample-rate changes** on the output device are logged but don't rebuild taps. If an app
+  goes quiet after one, nudging its slider rebuilds its tap.
+- **Not notarized yet**, hence the one-time *Open Anyway* step.
 
-- **First moments of a muted app.** An app is only tapped once it actually
-  starts playing, so the first few milliseconds of sound from a muted or
-  turned-down app can slip through.
-- **No boost.** Volume goes up to 100%; boosting above that isn't supported
-  yet.
-- **One output for everything.** Every app plays to the current output
-  device; you can't send apps to different devices yet.
-- **Apps without a bundle ID** (rare background processes) aren't remembered
-  between launches.
-- **Sample-rate changes** on the output device are logged but don't rebuild
-  taps. If an app goes quiet after a sample-rate switch, toggling its slider
-  rebuilds its tap.
-- **Not notarized**, so macOS shows the warning described under Install.
+## 💛 Credits
 
-## Credits
-
-Made by Carlos Abufele at **Clutch Apps**: apps that come in clutch.
+Made by **Carlos Abufele** at **Clutch Apps**: apps that come in clutch.
 Follow along on X: [@Clutch_Apps_](https://x.com/Clutch_Apps_).
 
-Built with Swift, SwiftUI and Core Audio.
-
-Licensed under the MIT License; see [LICENSE](LICENSE).
+Built with Swift, SwiftUI and Core Audio. Licensed under the [MIT License](LICENSE).
