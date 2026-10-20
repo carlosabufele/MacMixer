@@ -25,13 +25,18 @@ codesign --verify --strict "$APP"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
 mkdir -p releases
-rm -f "releases/MacMixer-$VERSION.zip"
+# Never overwrite a release that already exists (e.g. MacMixer-1.0.0.zip):
+# bump MARKETING_VERSION in Xcode for a new build instead.
+if [[ -e "releases/MacMixer-$VERSION.zip" ]]; then
+    echo "releases/MacMixer-$VERSION.zip already exists; bump the version first." >&2
+    exit 1
+fi
 ditto -c -k --keepParent "$APP" "releases/MacMixer-$VERSION.zip"
 echo "Built MacMixer $VERSION -> releases/MacMixer-$VERSION.zip"
 
 if [[ "${1:-}" == "--install" ]]; then
     # Quit any running copy (it removes its taps on the way out).
-    pkill -TERM -f "MacMixer.app/Contents/MacOS/MacMixer" || true
+    pkill -TERM -x MacMixer || true   # exact process name only
     sleep 2
     rm -rf /Applications/MacMixer.app
     ditto "$APP" /Applications/MacMixer.app

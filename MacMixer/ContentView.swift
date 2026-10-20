@@ -114,7 +114,12 @@ struct ContentView: View {
         }
         .padding(12)
         .frame(width: 320)
-        .onAppear { login.refresh() }   // in case it was changed in System Settings
+        .onAppear {
+            monitor.setPanelOpen(true)
+            output.refresh()
+            login.refresh()   // in case it was changed in System Settings
+        }
+        .onDisappear { monitor.setPanelOpen(false) }
     }
 }
 

@@ -21,6 +21,9 @@ final class VolumeController: ObservableObject {
     // once an app is tapped, Core Audio may stop reporting it as playing.
     @Published private(set) var sounding: Set<String> = []
     private var soundCheckTimer: Timer?
+    // The "playing" check only matters for what's on screen, so it only runs
+    // while the panel is open.
+    private var panelIsOpen = false
     // When each tapped app last passed real sound.
     private var lastHeard: [String: Date] = [:]
 
@@ -34,7 +37,12 @@ final class VolumeController: ObservableObject {
     private var building: [String: Int] = [:]
     private var nextBuildNumber = 0
 
+    // Called before a volume or mute change, so AudioProcessMonitor can make
+    // sure it knows which of the app's processes are playing right now.
+    var willAdjust: ((String) -> Void)?
+
     private var processesByApp: [String: [AudioObjectID]] = [:]
+    private var playingByApp: [String: [AudioObjectID]] = [:]
 
     // All Core Audio calls that create, start, stop or destroy taps happen here,
     // one at a time.
@@ -90,17 +98,35 @@ final class VolumeController: ObservableObject {
         watchSampleRate()
     }
 
+    func setPanelOpen(_ open: Bool) {
+        panelIsOpen = open
+        if open { checkSounding() }   // show the current state right away
+        updateSoundTimer()
+    }
+
+    // Apps that should be turned down or muted but don't have a tap yet,
+    // usually because they aren't playing.
+    func appsWaitingForTap() -> [String] {
+        processesByApp.keys.filter { appID in
+            taps[appID] == nil && building[appID] == nil && currentGain(appID) < 0.999
+        }
+    }
+
     func volume(for appID: String) -> Float { volumes[appID] ?? 1 }
     func isSounding(_ appID: String) -> Bool { sounding.contains(appID) }
     func isMuted(_ appID: String) -> Bool { muted.contains(appID) }
 
     func setVolume(_ value: Float, for appID: String) {
+        // Only needed when there's no tap yet; once tapped, a slider move is
+        // just a number for the audio thread, so dragging stays cheap.
+        if taps[appID] == nil { willAdjust?(appID) }
         volumes[appID] = value
         apply(appID)
         scheduleSave()
     }
 
     func toggleMute(_ appID: String) {
+        if taps[appID] == nil { willAdjust?(appID) }
         if muted.contains(appID) { muted.remove(appID) } else { muted.insert(appID) }
         apply(appID)
         scheduleSave()
@@ -110,6 +136,7 @@ final class VolumeController: ObservableObject {
     // playing (AudioProcessMonitor refreshes on both).
     func sync(with apps: [AudioApp]) {
         processesByApp = Dictionary(apps.map { ($0.id, $0.processObjectIDs) }, uniquingKeysWith: { a, _ in a })
+        playingByApp = Dictionary(apps.map { ($0.id, $0.playingObjectIDs) }, uniquingKeysWith: { a, _ in a })
 
         for (appID, tap) in taps {
             guard processesByApp[appID] != nil else {
@@ -138,8 +165,10 @@ final class VolumeController: ObservableObject {
     // Why: a tap doesn't start until EVERY process in it is producing audio.
     // Chrome has a helper (video capture) that registers with Core Audio but
     // never plays, so a tap including it never started and Chrome stayed loud.
+    // (AudioProcessMonitor already asked Core Audio during its last refresh, which
+    // runs whenever any of these change, so we reuse its answer.)
     private func playingProcesses(of appID: String) -> [AudioObjectID] {
-        (processesByApp[appID] ?? []).filter { CoreAudioHelpers.isRunningOutput($0) }
+        playingByApp[appID] ?? []
     }
 
     private func currentGain(_ appID: String) -> Float {
@@ -398,15 +427,15 @@ final class VolumeController: ObservableObject {
 
     // MARK: - "Playing" detection for tapped apps
 
-    // While any tap exists, check 5 times a second which taps are passing
-    // loud-enough sound. An app stays "playing" for 1.5 s after its last sound,
+    // While the panel is open and any tap exists, check 5 times a second which
+    // taps are passing loud-enough sound. An app stays "playing" for 1.5 s after its last sound,
     // so it doesn't flicker to "Not playing" during a quiet bit or between songs.
     // Only publishes changes, so the UI doesn't redraw for nothing.
     private static let checkInterval: TimeInterval = 0.2
     private static let holdTime: TimeInterval = 1.5
 
     private func updateSoundTimer() {
-        if taps.isEmpty {
+        if taps.isEmpty || !panelIsOpen {
             soundCheckTimer?.invalidate()
             soundCheckTimer = nil
         } else if soundCheckTimer == nil {
