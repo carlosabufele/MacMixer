@@ -45,6 +45,10 @@ final class AudioProcessMonitor: ObservableObject {
         let owner: NSRunningApplication?   // the Dock app it belongs to, if any
     }
     private var facts: [AudioObjectID: ProcessFacts] = [:]
+    // Whether each process is playing. Each process's own listener keeps its
+    // entry current, so a refresh doesn't have to ask Core Audio about every
+    // process again (each question is a round-trip to the audio server).
+    private var playingState: [AudioObjectID: Bool] = [:]
     // Small copies of app icons, by app key (see AppResolver.smallIcon).
     private var icons: [String: NSImage] = [:]
 
@@ -71,7 +75,10 @@ final class AudioProcessMonitor: ObservableObject {
     // see is current even if a notification was missed.
     func setPanelOpen(_ open: Bool) {
         volumes.setPanelOpen(open)
-        if open { setNeedsRefresh() }
+        if open {
+            playingState.removeAll()   // ask Core Audio afresh, in case we missed something
+            setNeedsRefresh()
+        }
     }
 
     // MARK: - Building the list
@@ -82,11 +89,12 @@ final class AudioProcessMonitor: ObservableObject {
 
         // An app that starts playing the moment it appears can flip its "is
         // playing" flag before our listener for it is in place, and then we'd
-        // never hear about it. So look again shortly after a new process shows up.
-        if newObjects {
+        // never hear about it. So look at new processes again shortly after
+        // they show up (a cheap check; a full refresh only if one changed).
+        if !newObjects.isEmpty {
             for delay in [0.1, 0.3, 1.0] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    MainActor.assumeIsolated { self?.setNeedsRefresh() }
+                    MainActor.assumeIsolated { self?.recheck(newObjects) }
                 }
             }
         }
@@ -94,12 +102,13 @@ final class AudioProcessMonitor: ObservableObject {
         // Forget processes that are gone.
         let current = Set(objectIDs)
         facts = facts.filter { current.contains($0.key) }
+        playingState = playingState.filter { current.contains($0.key) }
 
         var grouped: [String: AudioApp] = [:]
         for objectID in objectIDs {
             guard let info = processFacts(objectID), info.pid != getpid() else { continue }
             let pid = info.pid, bundleID = info.bundleID, owner = info.owner
-            let isPlaying = CoreAudioHelpers.isRunningOutput(objectID)
+            let isPlaying = playing(objectID)
 
             // Lots of background system processes register with Core Audio.
             // Only show those if they are actually making sound.
@@ -133,6 +142,22 @@ final class AudioProcessMonitor: ObservableObject {
         volumes.sync(with: apps)
     }
 
+    private func playing(_ objectID: AudioObjectID) -> Bool {
+        if let known = playingState[objectID] { return known }
+        let value = CoreAudioHelpers.isRunningOutput(objectID)
+        playingState[objectID] = value
+        return value
+    }
+
+    // A process's "is playing" may have changed: ask Core Audio about just that
+    // one, and refresh only if it really changed.
+    private func updatePlaying(_ objectID: AudioObjectID) {
+        let value = CoreAudioHelpers.isRunningOutput(objectID)
+        guard playingState[objectID] != value else { return }
+        playingState[objectID] = value
+        setNeedsRefresh()
+    }
+
     private func processFacts(_ objectID: AudioObjectID) -> ProcessFacts? {
         if let known = facts[objectID] { return known }
         guard let pid = CoreAudioHelpers.pid(of: objectID) else { return nil }
@@ -150,6 +175,13 @@ final class AudioProcessMonitor: ObservableObject {
         return small
     }
 
+    // Re-asks about these processes; refreshes only if one of them changed.
+    private func recheck(_ objectIDs: [AudioObjectID]) {
+        for objectID in objectIDs where playingState[objectID] != nil {
+            updatePlaying(objectID)
+        }
+    }
+
     // MARK: - Live updates
 
     // Called by Core Audio whenever a process starts or stops using audio.
@@ -164,8 +196,8 @@ final class AudioProcessMonitor: ObservableObject {
 
     // Each process also tells us when it starts/stops *playing* (IsRunningOutput).
     // Add a listener for new processes and remove listeners for ones that are gone.
-    // Returns true if there were new processes.
-    private func updatePerProcessListeners(for objectIDs: [AudioObjectID]) -> Bool {
+    // Returns the processes that are new since last time.
+    private func updatePerProcessListeners(for objectIDs: [AudioObjectID]) -> [AudioObjectID] {
         var address = CoreAudioHelpers.address(kAudioProcessPropertyIsRunningOutput)
         let current = Set(objectIDs)
 
@@ -174,14 +206,14 @@ final class AudioProcessMonitor: ObservableObject {
             processListeners[objectID] = nil
         }
 
-        var added = false
+        var added: [AudioObjectID] = []
         for objectID in objectIDs where processListeners[objectID] == nil {
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.setNeedsRefresh() }
+                MainActor.assumeIsolated { self?.updatePlaying(objectID) }
             }
             if AudioObjectAddPropertyListenerBlock(objectID, &address, DispatchQueue.main, block) == noErr {
                 processListeners[objectID] = block
-                added = true
+                added.append(objectID)
             }
         }
         return added
